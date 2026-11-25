@@ -8,7 +8,7 @@ module.exports = {
   },
   moduleNameMapper: {
     "\\.(css)$": "identity-obj-proxy",
-    // config.ts reads import.meta.env, which Jest (CommonJS) can't parse.
-    "^(.*)/config$": "<rootDir>/src/test/configMock.ts",
+    // appEnv.ts reads import.meta.env, which Jest (CommonJS) can't parse.
+    "/appEnv$": "<rootDir>/src/test/appEnvMock.ts",
   },
 };
