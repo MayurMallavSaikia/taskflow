@@ -59,6 +59,11 @@ allOpen {
     annotation("jakarta.persistence.Embeddable")
 }
 
+tasks.jar {
+    enabled = false // only build the executable boot jar
+}
+
+
 tasks.withType<Test> {
     useJUnitPlatform()
 }
