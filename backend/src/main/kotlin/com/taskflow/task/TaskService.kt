@@ -4,6 +4,8 @@ import com.taskflow.common.FieldValidationException
 import com.taskflow.common.NotFoundException
 import com.taskflow.common.PageResponse
 import com.taskflow.project.ProjectService
+import com.taskflow.task.activity.TaskActivityResponse
+import com.taskflow.task.activity.TaskActivityService
 import com.taskflow.task.sort.TaskSortStrategyResolver
 import com.taskflow.user.User
 import com.taskflow.user.UserRepository
@@ -22,6 +24,7 @@ class TaskService(
     private val userRepository: UserRepository,
     private val projectService: ProjectService,
     private val sortStrategyResolver: TaskSortStrategyResolver,
+    private val activityService: TaskActivityService,
     private val clock: Clock,
 ) {
 
@@ -42,6 +45,7 @@ class TaskService(
         val project = projectService.getOwnedProject(userId, projectId)
         val assignee = request.assigneeId?.let(::findAssignee)
         val task = taskRepository.save(TaskMapper.newTask(request, project, assignee, clock.instant()))
+        activityService.recordCreated(task, userId)
         return TaskMapper.toResponse(task, today())
     }
 
@@ -53,6 +57,7 @@ class TaskService(
             throw FieldValidationException("dueDate", "Due date cannot be in the past")
         }
 
+        val previousStatus = task.status
         task.title = request.title.trim()
         task.description = request.description?.trim()?.ifBlank { null }
         task.status = requireNotNull(request.status)
@@ -60,13 +65,17 @@ class TaskService(
         task.dueDate = request.dueDate
         task.assignee = request.assigneeId?.let(::findAssignee)
 
+        activityService.recordUpdated(task, userId)
+        activityService.recordStatusChange(task, userId, previousStatus, task.status)
         return TaskMapper.toResponse(taskRepository.saveAndFlush(task), today)
     }
 
     @Transactional
     fun updateStatus(userId: Long, taskId: Long, request: UpdateTaskStatusRequest): TaskResponse {
         val task = getOwnedTask(userId, taskId)
+        val previousStatus = task.status
         task.status = requireNotNull(request.status)
+        activityService.recordStatusChange(task, userId, previousStatus, task.status)
         return TaskMapper.toResponse(taskRepository.saveAndFlush(task), today())
     }
 
@@ -87,6 +96,11 @@ class TaskService(
             countsByStatus = countsByStatus,
             overdue = overdue,
         )
+    }
+
+    fun getActivity(userId: Long, taskId: Long): List<TaskActivityResponse> {
+        getOwnedTask(userId, taskId)
+        return activityService.listForTask(taskId)
     }
 
     private fun getOwnedTask(userId: Long, taskId: Long): Task =

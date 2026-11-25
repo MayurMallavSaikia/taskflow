@@ -3,6 +3,7 @@ package com.taskflow.task
 import com.taskflow.common.BadRequestException
 import com.taskflow.common.PageResponse
 import com.taskflow.security.AuthUser
+import com.taskflow.task.activity.TaskActivityResponse
 import jakarta.validation.Valid
 import org.springframework.data.domain.Sort
 import org.springframework.http.HttpStatus
@@ -70,6 +71,10 @@ class TaskController(private val taskService: TaskService) {
         @PathVariable taskId: Long,
         @Valid @RequestBody request: UpdateTaskStatusRequest,
     ): TaskResponse = taskService.updateStatus(user.id, taskId, request)
+
+    @GetMapping("/tasks/{taskId}/activity")
+    fun getActivity(@AuthenticationPrincipal user: AuthUser, @PathVariable taskId: Long): List<TaskActivityResponse> =
+        taskService.getActivity(user.id, taskId)
 
     @DeleteMapping("/tasks/{taskId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
