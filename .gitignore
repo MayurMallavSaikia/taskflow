@@ -1,0 +1,17 @@
+# Build output
+build/
+.gradle/
+out/
+dist/
+node_modules/
+coverage/
+
+# IDE
+.idea/
+*.iml
+.vscode/
+.DS_Store
+
+# Env
+.env
+*.local
