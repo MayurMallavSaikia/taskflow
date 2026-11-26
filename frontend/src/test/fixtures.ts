@@ -1,4 +1,5 @@
-import type { Task, User } from "../api/types";
+import type { Task } from "@/entities/task";
+import type { User } from "@/entities/user";
 
 export const alice: User = { id: 1, name: "Alice", email: "alice@example.com" };
 export const bob: User = { id: 2, name: "Bob", email: "bob@example.com" };

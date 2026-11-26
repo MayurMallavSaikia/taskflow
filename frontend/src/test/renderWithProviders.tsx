@@ -1,22 +1,33 @@
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render } from "@testing-library/react";
 import React from "react";
+import { Provider } from "react-redux";
 import { MemoryRouter } from "react-router-dom";
-import { AuthProvider } from "../features/auth/AuthContext";
+import { setupStore, type AppStore, type RootState } from "@/app/store";
 
 interface Options {
   route?: string;
+  preloadedState?: Partial<RootState>;
+  store?: AppStore;
 }
 
-export function renderWithProviders(ui: React.ReactElement, { route = "/" }: Options = {}) {
-  const queryClient = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
-  return render(
-    <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[route]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-        <AuthProvider>{ui}</AuthProvider>
-      </MemoryRouter>
-    </QueryClientProvider>,
-  );
+/**
+ * Renders with a fresh, real Redux store (each test is isolated) and a router. Tests mock only
+ * the API modules, so slices, thunks and selectors run for real. The auth slice reads the saved
+ * session when the store is created, so save one first (sessionStorage.save) to render as logged in.
+ */
+export function renderWithProviders(
+  ui: React.ReactElement,
+  { route = "/", preloadedState, store = setupStore(preloadedState) }: Options = {},
+) {
+  return {
+    store,
+    ...render(
+      <Provider store={store}>
+        <MemoryRouter initialEntries={[route]} future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          {ui}
+        </MemoryRouter>
+      </Provider>,
+    ),
+  };
 }
+

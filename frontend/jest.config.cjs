@@ -8,7 +8,8 @@ module.exports = {
   },
   moduleNameMapper: {
     "\\.(css)$": "identity-obj-proxy",
-    // appEnv.ts reads import.meta.env, which Jest (CommonJS) can't parse.
+    // appEnv.ts reads import.meta.env, which Jest (CommonJS) can't parse. Must come before the "@/" alias.
     "/appEnv$": "<rootDir>/src/test/appEnvMock.ts",
+    "^@/(.*)$": "<rootDir>/src/$1",
   },
 };

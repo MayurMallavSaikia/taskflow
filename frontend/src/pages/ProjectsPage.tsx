@@ -1,22 +1,38 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { Button } from "../components/Button";
-import { EmptyState } from "../components/EmptyState";
-import { ErrorMessage } from "../components/ErrorMessage";
-import { Modal } from "../components/Modal";
-import { Spinner } from "../components/Spinner";
-import { ProjectForm } from "../features/projects/ProjectForm";
-import { useProjects } from "../hooks/useProjects";
-import { formatDate } from "../utils/dates";
+import { formatDate } from "@/shared/lib/dates";
+import { useAppDispatch, useAppSelector } from "@/shared/lib/redux";
+import { Button } from "@/shared/ui/Button";
+import { EmptyState } from "@/shared/ui/EmptyState";
+import { ErrorMessage } from "@/shared/ui/ErrorMessage";
+import { Modal } from "@/shared/ui/Modal";
+import { Spinner } from "@/shared/ui/Spinner";
+import { fetchProjects, selectProjectList, selectProjectListState } from "@/entities/project";
+import { selectCurrentUser } from "@/features/auth";
+import { ProjectForm } from "@/features/project-create";
 
 export const ProjectsPage: React.FC = () => {
-  const { data: projects, isPending, isError, error, refetch } = useProjects();
-  const [showForm, setShowForm] = useState(false);
+  const dispatch = useAppDispatch();
   const navigate = useNavigate();
+  const projects = useAppSelector(selectProjectList);
+  const request = useAppSelector(selectProjectListState);
+  const user = useAppSelector(selectCurrentUser);
+  const [showForm, setShowForm] = useState(false);
+
+  // Refresh on every visit; whatever is cached shows meanwhile. Not aborted on unmount: the thunk
+  // skips itself while a fetch is in flight, so aborting would leave a remount (React StrictMode,
+  // quick back/forward) with no request at all.
+  useEffect(() => {
+    void dispatch(fetchProjects());
+  }, [dispatch]);
+
+  const loadedOnce = request.status === "succeeded" || projects.length > 0;
 
   const renderContent = () => {
-    if (isPending) return <Spinner label="Loading projects…" />;
-    if (isError) return <ErrorMessage error={error} onRetry={() => refetch()} />;
+    if (!loadedOnce) {
+      if (request.status === "failed") return <ErrorMessage error={request.error} onRetry={() => dispatch(fetchProjects())} />;
+      return <Spinner label="Loading projects…" />;
+    }
     if (projects.length === 0) {
       return (
         <EmptyState
@@ -33,6 +49,7 @@ export const ProjectsPage: React.FC = () => {
             <Link to={`/projects/${project.id}`} className="card project-card">
               <h2>{project.name}</h2>
               {project.description && <p className="muted">{project.description}</p>}
+              {project.owner.id !== user?.id && <span className="badge project-shared-badge">Shared by {project.owner.name}</span>}
               <span className="muted small">Created {formatDate(project.createdAt.slice(0, 10))}</span>
             </Link>
           </li>
@@ -62,3 +79,4 @@ export const ProjectsPage: React.FC = () => {
     </section>
   );
 };
+
