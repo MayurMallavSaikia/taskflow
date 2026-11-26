@@ -18,4 +18,7 @@ class AuthController(private val authService: AuthService) {
 
     @PostMapping("/login")
     fun login(@Valid @RequestBody request: LoginRequest): AuthResponse = authService.login(request)
+
+    @PostMapping("/guest")
+    fun guest(): AuthResponse = authService.loginAsGuest()
 }
