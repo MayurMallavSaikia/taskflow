@@ -1,12 +1,18 @@
 spring:
   application:
     name: taskflow
+  config:
+    # For local runs (IDE / bootRun), pick up the repo's .env so POSTGRES_PASSWORD, JWT_SECRET etc.
+    # don't need to be set by hand. Real environment variables still take precedence.
+    # Covers both working directories: the repo root (IntelliJ) and backend/ (gradle bootRun).
+    import: "optional:file:.env[.properties],optional:file:../.env[.properties]"
   datasource:
-    # Defaults to an in-memory H2 database (PostgreSQL mode) so the app runs without any setup.
-    # Point DB_URL at PostgreSQL to use a real database (see docker-compose.yml).
-    url: ${DB_URL:jdbc:h2:mem:taskflow;MODE=PostgreSQL;DATABASE_TO_LOWER=TRUE;DB_CLOSE_DELAY=-1}
-    username: ${DB_USERNAME:sa}
-    password: ${DB_PASSWORD:}
+    # PostgreSQL only. Defaults match a local Postgres (e.g. `docker compose up postgres`);
+    # override with DB_URL / DB_USERNAME / DB_PASSWORD (docker-compose.yml sets them).
+    url: ${DB_URL:jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/taskflow}
+    username: ${DB_USERNAME:taskflow}
+    password: ${DB_PASSWORD:${POSTGRES_PASSWORD:}}
+    driver-class-name: org.postgresql.Driver
   jpa:
     open-in-view: false
     hibernate:
@@ -18,7 +24,7 @@ spring:
       write-dates-as-timestamps: false
 
 server:
-  port: ${PORT:8080}
+  port: ${BACKEND_PORT:8080}
 
 taskflow:
   jwt:
@@ -29,6 +35,9 @@ taskflow:
     allowed-origins: ${CORS_ALLOWED_ORIGINS:http://localhost:5173}
   seed:
     enabled: ${SEED_ENABLED:true}
+  guest:
+    # "Continue as guest" logs into the seeded demo account (needs SEED_ENABLED=true at least once).
+    enabled: ${GUEST_ENABLED:true}
 
 springdoc:
   swagger-ui:

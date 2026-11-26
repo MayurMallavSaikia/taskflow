@@ -35,8 +35,9 @@ dependencies {
     runtimeOnly("io.jsonwebtoken:jjwt-impl:$jjwtVersion")
     runtimeOnly("io.jsonwebtoken:jjwt-jackson:$jjwtVersion")
 
-    runtimeOnly("com.h2database:h2")
     runtimeOnly("org.postgresql:postgresql")
+    // H2 is only used by the test suite; the application itself runs on PostgreSQL.
+    testRuntimeOnly("com.h2database:h2")
 
     testImplementation("org.springframework.boot:spring-boot-starter-test") {
         exclude(module = "mockito-core")
