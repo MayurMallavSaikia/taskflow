@@ -38,6 +38,9 @@ class TaskService(
         return PageResponse.from(page) { TaskMapper.toResponse(it, today) }
     }
 
+    fun getTask(userId: Long, taskId: Long): TaskResponse =
+        TaskMapper.toResponse(getAccessibleTask(userId, taskId), today())
+
     @Transactional
     fun createTask(userId: Long, projectId: Long, request: CreateTaskRequest): TaskResponse {
         val project = projectService.getAccessibleProject(userId, projectId)

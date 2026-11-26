@@ -31,13 +31,14 @@ class TaskController(private val taskService: TaskService) {
         @RequestParam(required = false) status: TaskStatus?,
         @RequestParam(required = false) priority: TaskPriority?,
         @RequestParam(required = false) assigneeId: Long?,
+        @RequestParam(required = false) q: String?,
         @RequestParam(defaultValue = "createdAt") sort: String,
         @RequestParam(defaultValue = "asc") direction: String,
         @RequestParam(defaultValue = "0") page: Int,
         @RequestParam(defaultValue = "20") size: Int,
     ): PageResponse<TaskResponse> {
         val query = TaskListQuery(
-            filter = TaskFilter(status, priority, assigneeId),
+            filter = TaskFilter(status, priority, assigneeId, q),
             sort = sort,
             direction = parseDirection(direction),
             page = page,
@@ -57,6 +58,11 @@ class TaskController(private val taskService: TaskService) {
     @GetMapping("/projects/{projectId}/summary")
     fun getSummary(@AuthenticationPrincipal user: AuthUser, @PathVariable projectId: Long): ProjectSummaryResponse =
         taskService.getSummary(user.id, projectId)
+
+    /** One task, e.g. to open it from a shared link. Includes projectId so the client can find its board. */
+    @GetMapping("/tasks/{taskId}")
+    fun getTask(@AuthenticationPrincipal user: AuthUser, @PathVariable taskId: Long): TaskResponse =
+        taskService.getTask(user.id, taskId)
 
     @PutMapping("/tasks/{taskId}")
     fun updateTask(

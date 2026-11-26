@@ -8,6 +8,8 @@ data class TaskFilter(
     val status: TaskStatus? = null,
     val priority: TaskPriority? = null,
     val assigneeId: Long? = null,
+    /** Free-text search: matches the title, or the task id when it's a number like "42" or "#42". */
+    val search: String? = null,
 )
 
 /**
@@ -22,7 +24,24 @@ object TaskSpecifications {
             filter.status?.let(::hasStatus),
             filter.priority?.let(::hasPriority),
             filter.assigneeId?.let(::hasAssignee),
+            filter.search?.trim()?.takeIf { it.isNotEmpty() }?.let(::matchesSearch),
         ).reduce { acc, spec -> acc.and(spec) }
+
+    /**
+     * Case-insensitive "title contains". If the term is a number (optionally prefixed with '#'),
+     * the task with that id matches too, so "42" finds task #42 as well as "Release 42".
+     */
+    fun matchesSearch(term: String) = Specification<Task> { root, _, cb ->
+        val titleMatches = cb.like(cb.lower(root.get("title")), "%${escapeLike(term.lowercase())}%", LIKE_ESCAPE)
+        val id = term.removePrefix("#").trim().toLongOrNull()
+        if (id == null) titleMatches else cb.or(titleMatches, cb.equal(root.get<Long>("id"), id))
+    }
+
+    /** Treat % and _ typed by the user as literal characters, not wildcards. */
+    private fun escapeLike(value: String) =
+        value.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+    private const val LIKE_ESCAPE = '\\'
 
     fun inProject(projectId: Long) = Specification<Task> { root, _, cb ->
         cb.equal(root.get<Any>("project").get<Long>("id"), projectId)
