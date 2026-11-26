@@ -9,6 +9,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException
 import org.springframework.web.bind.annotation.ExceptionHandler
 import org.springframework.web.bind.annotation.RestControllerAdvice
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException
+import org.springframework.web.servlet.resource.NoResourceFoundException
 import java.time.Instant
 
 @RestControllerAdvice
@@ -27,6 +28,11 @@ class GlobalExceptionHandler {
     @ExceptionHandler(FieldValidationException::class)
     fun handleFieldValidation(ex: FieldValidationException, request: HttpServletRequest): ResponseEntity<ErrorResponse> =
         build(HttpStatus.BAD_REQUEST, "Validation failed", request, listOf(FieldErrorResponse(ex.field, ex.message ?: "Invalid value")))
+
+    /** Unknown URL. Without this the catch-all below would turn it into a 500. */
+    @ExceptionHandler(NoResourceFoundException::class)
+    fun handleNoResource(ex: NoResourceFoundException, request: HttpServletRequest): ResponseEntity<ErrorResponse> =
+        build(HttpStatus.NOT_FOUND, "No endpoint ${request.method} ${request.requestURI}", request)
 
     @ExceptionHandler(ApiException::class)
     fun handleApiException(ex: ApiException, request: HttpServletRequest): ResponseEntity<ErrorResponse> =
