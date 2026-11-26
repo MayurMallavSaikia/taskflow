@@ -1,5 +1,9 @@
 # TaskFlow
 
+[![Watch the demo video](https://img.shields.io/badge/%E2%96%B6%20Watch%20the%20demo-Google%20Drive-red?style=for-the-badge)](https://drive.google.com/file/d/1e8-gP0BsVk0tJGC0N8gh4mq0QYXrcuMt/view?usp=sharing)
+
+**[▶ Demo video (3–5 min walkthrough)](https://drive.google.com/file/d/1e8-gP0BsVk0tJGC0N8gh4mq0QYXrcuMt/view?usp=sharing)**: guest login, the board, filters, sorting and search, shareable task links, and project members.
+
 A small team task tracker: a Spring Boot + Kotlin REST API and a React + TypeScript frontend.
 
 Users register, create projects, and manage tasks on a three-column board (To Do, In Progress, Done) with filters, sorting, overdue highlighting and a per-task activity log.
