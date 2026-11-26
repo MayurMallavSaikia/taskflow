@@ -25,9 +25,9 @@ Users register, create projects, and manage tasks on a three-column board (To Do
 | --- | --- |
 | Backend | Kotlin 2.2, Spring Boot 3.5 (Web, Data JPA, Security, Validation), Gradle (Kotlin DSL) |
 | Auth | Stateless JWT (jjwt), BCrypt password hashes |
-| Database | PostgreSQL 16 (Docker) or in-memory H2 in PostgreSQL mode (local default), Flyway migrations |
+| Database | PostgreSQL 16, Flyway migrations (tests use in-memory H2 in PostgreSQL mode) |
 | API docs | springdoc-openapi (Swagger UI) |
-| Frontend | React 18, TypeScript, Vite, React Router 6, TanStack Query 5, axios |
+| Frontend | React 18, TypeScript, Vite, React Router 6, Redux Toolkit 2, axios |
 | Tests | JUnit 5, MockK, Spring MockMvc; Jest + React Testing Library |
 | Tooling | Docker Compose, GitHub Actions, ESLint |
 
@@ -55,19 +55,25 @@ On startup the backend seeds a demo user with two projects and some tasks (inclu
 
 A second user, `alex@taskflow.dev` (same password), exists so tasks can be assigned to someone else. Seeding is skipped if the demo user already exists, and can be turned off with `SEED_ENABLED=false`.
 
+### Guest login
+
+The login page has a **Continue as guest** button (`POST /api/auth/guest`) that logs straight into the demo account above, without typing the password (the backend issues the token, the password isn't in the frontend). Everyone using it shares the demo account's data. It needs the demo account to exist (seeded on first start with `SEED_ENABLED=true`), otherwise it returns 404; turn it off with `GUEST_ENABLED=false`.
+
 ## Running locally without Docker
 
 Needs JDK 17+ and Node 20+.
 
-**Backend** (in-memory H2, nothing else to install):
+**Backend** (needs PostgreSQL; the easiest way is to start just the database container):
 
 ```bash
+docker compose up -d postgres   # uses POSTGRES_PASSWORD from .env
 cd backend
-export JWT_SECRET=$(openssl rand -base64 48)
-./gradlew bootRun
+./gradlew bootRun               # or run TaskflowApplication from the IDE
 ```
 
-To use PostgreSQL instead, also set `DB_URL`, `DB_USERNAME` and `DB_PASSWORD`.
+The backend reads the repo's `.env` automatically when run locally (from the repo root or `backend/`), so `POSTGRES_PASSWORD`, `POSTGRES_PORT` and `JWT_SECRET` come from there. Real environment variables still win.
+
+`DB_URL` defaults to `jdbc:postgresql://localhost:5432/taskflow`. The `postgres` service publishes port `${POSTGRES_PORT:-5432}` on `127.0.0.1`, so this works out of the box (and a DB GUI can connect with user `taskflow` and `POSTGRES_PASSWORD`).
 
 **Frontend:**
 
@@ -77,7 +83,7 @@ npm install
 npm run dev
 ```
 
-Open http://localhost:5173. The Vite dev server proxies `/api` to `http://localhost:8080`; set `VITE_PROXY_TARGET` if the backend runs elsewhere.
+Open http://localhost:5173. The Vite dev server proxies `/api` to `http://localhost:<BACKEND_PORT>` (read from the root `.env`, default `8080`), the same port the backend listens on locally; set `VITE_PROXY_TARGET` if the backend runs elsewhere.
 
 ### Configuration
 
@@ -87,10 +93,11 @@ All configuration comes from environment variables (see `backend/src/main/resour
 | --- | --- | --- |
 | `JWT_SECRET` | none (required) | At least 32 characters. The app won't start without it. |
 | `JWT_EXPIRATION` | `PT2H` | ISO-8601 duration |
-| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | in-memory H2 | |
+| `DB_URL` / `DB_USERNAME` / `DB_PASSWORD` | `jdbc:postgresql://localhost:5432/taskflow` / `taskflow` / empty | PostgreSQL only (H2 is used by tests only) |
 | `CORS_ALLOWED_ORIGINS` | `http://localhost:5173` | Comma separated |
 | `SEED_ENABLED` | `true` | |
-| `PORT` | `8080` | |
+| `GUEST_ENABLED` | `true` | Enables "Continue as guest" (logs into the demo account) |
+| `BACKEND_PORT` | `8080` | Backend HTTP port when run locally (also the host port in docker compose; inside the container it's always 8080) |
 
 ## Running the tests
 
@@ -117,19 +124,26 @@ All endpoints except register and login need an `Authorization: Bearer <token>` 
 | --- | --- | --- |
 | POST | `/api/auth/register` | Create a user, returns a JWT |
 | POST | `/api/auth/login` | Returns a JWT |
-| GET | `/api/projects` | Current user's projects |
+| GET | `/api/projects` | Projects the current user owns or is a member of |
 | POST | `/api/projects` | Create a project |
 | GET | `/api/projects/{id}` | Get one project |
 | GET | `/api/projects/{id}/tasks` | List tasks (filters, sorting, pagination, see below) |
+| GET | `/api/projects/{id}/board` | All board columns in one call: `{ columns: { TODO: { tasks, total }, IN_PROGRESS: …, DONE: … } }`. Same filters as the list (no `status`), plus `todoLimit` / `inProgressLimit` / `doneLimit` (default 20, max 500) |
 | POST | `/api/projects/{id}/tasks` | Create a task |
 | GET | `/api/projects/{id}/summary` | Task count per status + overdue count |
+| GET | `/api/projects/{id}/members` | Project members (the users its tasks can be assigned to) |
+| PUT | `/api/projects/{id}/members/{userId}` | Add a member (idempotent), returns the member list |
+| DELETE | `/api/projects/{id}/members/{userId}` | Remove a member and unassign their tasks; the owner can't be removed |
 | PUT | `/api/tasks/{id}` | Update a task |
 | PATCH | `/api/tasks/{id}/status` | Change only the status |
+| GET | `/api/tasks/{id}` | Get one task (used to open a shared task link) |
 | DELETE | `/api/tasks/{id}` | Delete a task |
 | GET | `/api/tasks/{id}/activity` | Activity log for a task (bonus) |
-| GET | `/api/users` | Users that a task can be assigned to |
+| GET | `/api/users` | All users (used to pick new project members) |
 
-**Task list query params:** `status`, `priority`, `assigneeId`, `sort` (`dueDate` \| `priority` \| `createdAt`, default `createdAt`), `direction` (`asc` \| `desc`), `page` (0-based), `size` (default 20, max 100).
+**Task list query params:** `status`, `priority`, `assigneeId`, `q` (search: case-insensitive title match, or the task id when it's a number like `42` / `#42`; `%` and `_` are literal), `sort` (`dueDate` \| `priority` \| `createdAt`, default `createdAt`), `direction` (`asc` \| `desc`), `page` (0-based), `size` (default 20, max 100).
+
+**Shareable task links.** Every task has a link, `/projects/{projectId}/tasks/{taskId}`, that opens the board with that task's panel open ("Copy link" in the task panel; clicking a card also puts the link in the address bar). Board filters in the query string are kept. Links work for every member of the project; others see "Task #N doesn't exist, or you don't have access to it". If you're logged out, you're sent back to the link after logging in.
 
 Responses are paged:
 
@@ -170,11 +184,11 @@ taskflow/
 │       └── config/              security, OpenAPI, clock, demo data seeder
 ├── frontend/                    React app
 │   └── src/
-│       ├── api/                 axios client, endpoint modules, types, error helpers
-│       ├── hooks/               React Query hooks (one place for query keys + cache invalidation)
-│       ├── features/            auth, projects and tasks UI + logic
-│       ├── components/          reusable UI: Button, Modal, FormField, Spinner, ErrorMessage, ...
-│       └── pages/               route-level screens
+│       ├── app/                 store, App routes, layout, global styles
+│       ├── pages/               route-level screens
+│       ├── features/            user actions: auth, board, project-create, project-members, task-editor
+│       ├── entities/            domain data: project, task, user (API module + slice + selectors + UI)
+│       └── shared/              axios client, error helpers, Redux helpers, reusable UI
 ├── docker-compose.yml           postgres + backend + frontend (nginx)
 └── .github/workflows/ci.yml
 ```
@@ -198,11 +212,12 @@ Other notes:
 
 ### Frontend
 
-- `api/` is the only place that knows about HTTP. `client.ts` adds the bearer token and calls a registered handler on any 401.
-- `hooks/` wraps every API call in a React Query hook. Mutations invalidate the board's task lists and summary, so columns and counts stay in sync after a move/edit/delete.
-- **Board.** Each column is its own paged query (`useInfiniteQuery` with status filter, 20 per page, "Load more"). This uses the API's pagination properly instead of loading every task at once. Filters and sort live in the URL (`?priority=HIGH&sort=priority`), so a filtered board survives a refresh and can be shared.
+- **Layers** (feature-sliced): `app → pages → features → entities → shared`. A layer only imports from layers below it, and each slice exposes a public `index.ts`.
+- `shared/api/client.ts` is the only place that knows about HTTP. It adds the bearer token and calls a registered handler on any 401; the store wires both in, so `shared` never imports the store.
+- **Data** lives in Redux Toolkit slices: thunks (`createAsyncThunk`) call the API modules and reject with a serializable `ApiError`. After a create/edit/move/delete, the task slice bumps a per-project revision and the board, summary and activity refetch.
+- **Board.** One `/board` request loads all three columns (see trade-offs). Column state holds only task ids; the tasks live once in the task table. Filters and sort live in the URL (`?priority=HIGH&sort=priority`), so a filtered board survives a refresh and can be shared.
 - **Moving tasks.** Drag-and-drop (native HTML5) on desktop, and a status dropdown on every card, which also works on touch screens and with a keyboard.
-- **Auth.** `AuthProvider` stores the session (token + expiry + user) in `localStorage`. The session ends, and the user is sent to login with a "session expired" message, either when the token's expiry time is reached (timer) or when the API returns 401.
+- **Auth.** The `auth` slice holds the session (token + expiry + user), saved in `localStorage`. Logging out or expiring resets the whole store, so the next user never sees the previous user's data. The session ends, and the user is sent to login with a "session expired" message, either when the token's expiry time is reached (timer) or when the API returns 401.
 - **States.** Every query renders loading, error (with Retry) and empty states. Every mutation shows its error and disables its button while pending.
 - **Responsive.** CSS grid board with three columns on desktop that stack below 768px.
 
@@ -214,24 +229,35 @@ Other notes:
 | **Specification** | `task/TaskSpecifications` | Each optional filter (status, priority, assignee) is a small composable predicate; only the ones that are set get combined. Avoids writing a repository method per filter combination. |
 | **Repository** | `*Repository` interfaces (Spring Data JPA) | Keeps persistence out of the services, and makes services easy to unit test with MockK. |
 | **Factory / Mapper** | `TaskMapper.newTask(...)` / `toResponse(...)`, `ProjectResponse.from(...)`, `UserResponse.from(...)`, `PageResponse.from(...)` | One place that builds entities from requests and DTOs from entities, so JPA entities never leak out of the API. |
-| **Provider / Context** (frontend) | `AuthProvider` + `useAuth` | Single source of truth for the session, used by routes, the layout and the API client's 401 handling. |
+| **Store / Flux** (frontend) | Redux Toolkit slices in `entities/*` and `features/*`, combined in `app/store.ts` | Single source of truth for the session and server data; components read through selectors and change things only by dispatching actions. |
+| **Normalized entities** (frontend) | `createEntityAdapter` for projects and tasks | Each record is stored once by id, so a task edited in the panel updates on the board too. |
 
 ## State management
 
-**TanStack Query (React Query) for server state, React Context for auth, and the URL for board filters.**
+**Redux Toolkit for the session and server data, local component state for one-off actions, and the URL for board filters.**
 
-Almost all the state in this app is server data (projects, tasks, summary, users). React Query gives caching, loading/error flags, retries and cache invalidation out of the box, which is exactly what the "loading, empty and error states for every API call" requirement needs. Redux Toolkit would mean writing slices and thunks for data that React Query already manages.
+| Slice | Owns |
+| --- | --- |
+| `auth` | the session (token + user) |
+| `users` | all users, for adding project members (reused for 5 minutes) |
+| `projects` | projects by id, list order, summaries, member lists |
+| `tasks` | tasks by id, single-task and activity requests, per-project change revisions |
+| `board` | which task ids are in which column for the open project |
 
-The only real client state is the logged-in session, which is small and changes rarely, so a Context is enough. Filters are kept in the URL search params rather than in a store so they survive refresh and back/forward.
+Every request is tracked as `{ status: idle | loading | succeeded | failed, error, data }` (`shared/lib/redux.ts`), which drives the loading, empty and error states. Fetches skip themselves while the same request is in flight, a newer board request replaces an older one, and cancelled requests (page left, newer search) aren't shown as errors.
+
+Whether a particular form is submitting only matters to that form, so saves and deletes use `useAsyncAction` (local `isPending`/`error`) instead of the store. Filters are kept in the URL search params rather than in the store so they survive refresh and back/forward and can be shared.
+
+Trade-off: compared with React Query this is more code (thunks, request status, refetch on revision change) and there is no automatic retry or background refetch. In return all state is in one inspectable store (Redux DevTools), the same task object is shared by the board and the task panel, and the reset on logout is a single reducer.
 
 ## Assumptions and trade-offs
 
-- **"Users can only see and change projects they own."** I took this literally: there's no project membership/sharing. A task can still be assigned to any registered user (that's the only way the assignee field makes sense without a teams feature), but the assignee can't see the project unless they own it. `GET /api/users` therefore lists all users; with a real teams model it would only list members.
+- **Project access = membership.** Each project has one owner and a **member list** (the "Members" button on the board); the owner is always a member and can't be removed. Members see the project on their dashboard ("Shared by …") and can do everything with its tasks: view, search, create, edit, move, delete. Only the owner can add or remove members (members get 403, the list is read-only for them). Non-members get 404 for everything in the project, so project ids aren't revealed. Only members can be assigned the project's tasks (anything else is a 400 on `assigneeId`). Removing a member unassigns them from the project's tasks and removes their access. Existing projects were migrated with their owner plus anyone already assigned a task as members (`V3__create_project_members.sql`).
 - **Overdue** means `dueDate < today` and status is not `DONE`. "Today" is calculated on the server in UTC. The form uses the browser's local date for its `min` and client-side checks, so around midnight the two can differ by a day; the server is the source of truth.
 - **Due date on update.** "Not in the past" is enforced on create. On update it's only enforced if the date changes, so you can still edit an already overdue task (e.g. to mark it done).
 - **JWT in localStorage.** Simple and fits a stateless API, but readable by any script on the page if there were an XSS bug. An httpOnly cookie + CSRF protection would be safer. There's no refresh token; the user logs in again after 2 hours.
 - **Default sort.** The API defaults to `createdAt`; the board defaults to due date (soonest first, no-date tasks last) since that's what the assignment asks the UI to support.
-- **Board pagination.** Each column loads 20 tasks at a time. Column headers show the total for the status from the summary endpoint, and "x of y" when a filter is active.
+- **Board loading.** The board fetches all three columns with one request (`/board`), not one per column. Each column shows its first 20 tasks; "Load more" raises that column's limit by 20 and refetches the board, still one request, and keeps the old board on screen (dimmed) until the new one arrives. Re-fetching the whole column instead of only the next page sends a bit more data, but every column always reflects the same moment, so a task moved between columns can't show up twice or go missing. Changing a filter resets the limits. On the server it's still one query per column (plus a count only when a column has more than its limit). Column headers show the total for the status from the summary endpoint, and "x of y" when a filter is active.
 - **Drag-and-drop** uses the native HTML5 API to avoid a dependency. It doesn't work on touch devices, which is why every card also has a status dropdown.
 - **No optimistic updates.** After a move the column refetches (fast, and avoids rollback logic). The card is dimmed while the request is in flight.
 - **Seed data.** The demo tasks are inserted directly, so they don't have a "created" entry in the activity log; anything you do in the UI is logged.
@@ -239,7 +265,7 @@ The only real client state is the logged-in session, which is small and changes 
 
 ## What I'd do next
 
-- Project members/teams, so assignees can see their tasks and `/api/users` is scoped to a team.
+- Member roles (e.g. read-only viewers, or letting trusted members manage the member list).
 - Refresh tokens (or httpOnly cookie sessions) instead of a 2-hour token in localStorage.
 - Optimistic updates for moving tasks, and keyboard-accessible drag-and-drop (e.g. dnd-kit).
 - Task ordering within a column.
