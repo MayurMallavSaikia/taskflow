@@ -47,6 +47,36 @@ class TaskController(private val taskService: TaskService) {
         return taskService.listTasks(user.id, projectId, query)
     }
 
+    /**
+     * All board columns in one call. Same filters as the task list (except status); per-column
+     * limits via todoLimit / inProgressLimit / doneLimit (default 20, max 500).
+     */
+    @GetMapping("/projects/{projectId}/board")
+    fun getBoard(
+        @AuthenticationPrincipal user: AuthUser,
+        @PathVariable projectId: Long,
+        @RequestParam(required = false) priority: TaskPriority?,
+        @RequestParam(required = false) assigneeId: Long?,
+        @RequestParam(required = false) q: String?,
+        @RequestParam(defaultValue = "createdAt") sort: String,
+        @RequestParam(defaultValue = "asc") direction: String,
+        @RequestParam(defaultValue = "${TaskService.DEFAULT_BOARD_LIMIT}") todoLimit: Int,
+        @RequestParam(defaultValue = "${TaskService.DEFAULT_BOARD_LIMIT}") inProgressLimit: Int,
+        @RequestParam(defaultValue = "${TaskService.DEFAULT_BOARD_LIMIT}") doneLimit: Int,
+    ): BoardResponse {
+        val query = BoardQuery(
+            filter = TaskFilter(priority = priority, assigneeId = assigneeId, search = q),
+            sort = sort,
+            direction = parseDirection(direction),
+            limits = mapOf(
+                TaskStatus.TODO to todoLimit,
+                TaskStatus.IN_PROGRESS to inProgressLimit,
+                TaskStatus.DONE to doneLimit,
+            ),
+        )
+        return taskService.getBoard(user.id, projectId, query)
+    }
+
     @PostMapping("/projects/{projectId}/tasks")
     @ResponseStatus(HttpStatus.CREATED)
     fun createTask(

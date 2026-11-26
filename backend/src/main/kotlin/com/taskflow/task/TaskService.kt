@@ -38,6 +38,26 @@ class TaskService(
         return PageResponse.from(page) { TaskMapper.toResponse(it, today) }
     }
 
+    /**
+     * The whole board in one call: for each status, the first `limits[status]` tasks matching the
+     * filter (ignoring any status in it) and the total that match. "Load more" in a column just
+     * asks again with a bigger limit for that column, so all columns stay consistent.
+     */
+    fun getBoard(userId: Long, projectId: Long, query: BoardQuery): BoardResponse {
+        projectService.getAccessibleProject(userId, projectId)
+        val strategy = sortStrategyResolver.resolve(query.sort)
+        val today = today()
+        val columns = TaskStatus.entries.associateWith { status ->
+            val spec = TaskSpecifications.forProject(projectId, query.filter.copy(status = status))
+                .and(TaskSpecifications.orderedBy(strategy, query.direction))
+            val limit = (query.limits[status] ?: DEFAULT_BOARD_LIMIT).coerceIn(1, MAX_BOARD_LIMIT)
+            // Spring skips the count query when the first page isn't full, so small columns cost one query.
+            val page = taskRepository.findAll(spec, PageRequest.of(0, limit))
+            BoardColumnResponse(page.content.map { TaskMapper.toResponse(it, today) }, page.totalElements)
+        }
+        return BoardResponse(columns)
+    }
+
     fun getTask(userId: Long, taskId: Long): TaskResponse =
         TaskMapper.toResponse(getAccessibleTask(userId, taskId), today())
 
@@ -117,8 +137,18 @@ class TaskService(
 
     companion object {
         const val MAX_PAGE_SIZE = 100
+        const val DEFAULT_BOARD_LIMIT = 20
+        const val MAX_BOARD_LIMIT = 500
     }
 }
+
+data class BoardQuery(
+    val filter: TaskFilter = TaskFilter(),
+    val sort: String = "createdAt",
+    val direction: Sort.Direction = Sort.Direction.ASC,
+    /** Max tasks to return per column; missing statuses use [TaskService.DEFAULT_BOARD_LIMIT]. */
+    val limits: Map<TaskStatus, Int> = emptyMap(),
+)
 
 data class TaskListQuery(
     val filter: TaskFilter = TaskFilter(),

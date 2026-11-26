@@ -72,3 +72,14 @@ data class ProjectSummaryResponse(
     val countsByStatus: Map<TaskStatus, Long>,
     val overdue: Long,
 )
+
+/** One board column: the first [BoardQuery.limits] tasks with this status, plus how many match in total. */
+data class BoardColumnResponse(
+    val tasks: List<TaskResponse>,
+    val total: Long,
+)
+
+/** Every column of the board in one response; always has an entry for each status. */
+data class BoardResponse(
+    val columns: Map<TaskStatus, BoardColumnResponse>,
+)
