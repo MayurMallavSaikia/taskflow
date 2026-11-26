@@ -10,7 +10,6 @@ import com.taskflow.task.sort.CreatedAtSortStrategy
 import com.taskflow.task.sort.DueDateSortStrategy
 import com.taskflow.task.sort.PrioritySortStrategy
 import com.taskflow.task.sort.TaskSortStrategyResolver
-import com.taskflow.user.UserRepository
 import io.mockk.every
 import io.mockk.just
 import io.mockk.mockk
@@ -25,12 +24,10 @@ import org.junit.jupiter.api.assertThrows
 import org.springframework.data.domain.PageImpl
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Pageable
-import java.util.Optional
 
 class TaskServiceTest {
 
     private val taskRepository = mockk<TaskRepository>()
-    private val userRepository = mockk<UserRepository>()
     private val projectService = mockk<ProjectService>()
     private val activityService = mockk<TaskActivityService>(relaxed = true)
     private val sortResolver = TaskSortStrategyResolver(
@@ -44,8 +41,8 @@ class TaskServiceTest {
 
     @BeforeEach
     fun setUp() {
-        service = TaskService(taskRepository, userRepository, projectService, sortResolver, activityService, TestFixtures.fixedClock)
-        every { projectService.getOwnedProject(1L, 10L) } returns project
+        service = TaskService(taskRepository, projectService, sortResolver, activityService, TestFixtures.fixedClock)
+        every { projectService.getAccessibleProject(1L, 10L) } returns project
         every { taskRepository.saveAndFlush(any()) } answers { firstArg() }
     }
 
@@ -55,7 +52,7 @@ class TaskServiceTest {
         @Test
         fun `creates task in TODO with the given fields and logs activity`() {
             val assignee = TestFixtures.user(id = 2L, name = "Bob")
-            every { userRepository.findById(2L) } returns Optional.of(assignee)
+            project.members.add(assignee)
             val saved = slot<Task>()
             every { taskRepository.save(capture(saved)) } answers { TestFixtures.task(id = 100L, project = project, assignee = assignee) }
 
@@ -76,20 +73,30 @@ class TaskServiceTest {
         }
 
         @Test
-        fun `rejects unknown assignee with a field error`() {
-            every { userRepository.findById(99L) } returns Optional.empty()
-
+        fun `rejects an assignee who is not a project member with a field error`() {
+            // User 99 exists or not, it doesn't matter: only members can be assigned.
             val ex = assertThrows<FieldValidationException> {
                 service.createTask(1L, 10L, CreateTaskRequest(title = "x", assigneeId = 99L))
             }
 
             assertThat(ex.field).isEqualTo("assigneeId")
+            assertThat(ex.message).isEqualTo("Assignee must be a member of this project")
             verify(exactly = 0) { taskRepository.save(any()) }
         }
 
         @Test
+        fun `the owner can always be assigned`() {
+            val saved = slot<Task>()
+            every { taskRepository.save(capture(saved)) } answers { TestFixtures.task(id = 101L, project = project, assignee = owner) }
+
+            service.createTask(1L, 10L, CreateTaskRequest(title = "Mine", assigneeId = 1L))
+
+            assertThat(saved.captured.assignee).isEqualTo(owner)
+        }
+
+        @Test
         fun `fails when the project is not owned by the user`() {
-            every { projectService.getOwnedProject(2L, 10L) } throws NotFoundException("Project 10 not found")
+            every { projectService.getAccessibleProject(2L, 10L) } throws NotFoundException("Project 10 not found")
 
             assertThrows<NotFoundException> { service.createTask(2L, 10L, CreateTaskRequest(title = "x")) }
         }
@@ -101,7 +108,7 @@ class TaskServiceTest {
         @Test
         fun `rejects changing the due date to a past date`() {
             val task = TestFixtures.task(project = project, dueDate = TODAY.plusDays(2))
-            every { taskRepository.findByIdAndProjectOwnerId(100L, 1L) } returns task
+            every { taskRepository.findAccessibleById(100L, 1L) } returns task
 
             val ex = assertThrows<FieldValidationException> {
                 service.updateTask(1L, 100L, updateRequest(dueDate = TODAY.minusDays(1)))
@@ -114,7 +121,7 @@ class TaskServiceTest {
         fun `allows editing an overdue task when the due date is unchanged`() {
             val pastDate = TODAY.minusDays(3)
             val task = TestFixtures.task(project = project, dueDate = pastDate)
-            every { taskRepository.findByIdAndProjectOwnerId(100L, 1L) } returns task
+            every { taskRepository.findAccessibleById(100L, 1L) } returns task
 
             val response = service.updateTask(1L, 100L, updateRequest(title = "Renamed", dueDate = pastDate))
 
@@ -125,7 +132,7 @@ class TaskServiceTest {
         @Test
         fun `logs a status change when the status is edited`() {
             val task = TestFixtures.task(project = project, status = TaskStatus.TODO)
-            every { taskRepository.findByIdAndProjectOwnerId(100L, 1L) } returns task
+            every { taskRepository.findAccessibleById(100L, 1L) } returns task
 
             service.updateTask(1L, 100L, updateRequest(status = TaskStatus.DONE))
 
@@ -143,7 +150,7 @@ class TaskServiceTest {
     @Test
     fun `updateStatus changes only the status and records activity`() {
         val task = TestFixtures.task(project = project, status = TaskStatus.TODO, priority = TaskPriority.LOW)
-        every { taskRepository.findByIdAndProjectOwnerId(100L, 1L) } returns task
+        every { taskRepository.findAccessibleById(100L, 1L) } returns task
 
         val response = service.updateStatus(1L, 100L, UpdateTaskStatusRequest(TaskStatus.IN_PROGRESS))
 
@@ -154,7 +161,7 @@ class TaskServiceTest {
 
     @Test
     fun `deleting another user's task returns not found`() {
-        every { taskRepository.findByIdAndProjectOwnerId(100L, 2L) } returns null
+        every { taskRepository.findAccessibleById(100L, 2L) } returns null
 
         assertThrows<NotFoundException> { service.deleteTask(2L, 100L) }
         verify(exactly = 0) { taskRepository.delete(any<Task>()) }
@@ -163,7 +170,7 @@ class TaskServiceTest {
     @Test
     fun `deleteTask removes an owned task`() {
         val task = TestFixtures.task(project = project)
-        every { taskRepository.findByIdAndProjectOwnerId(100L, 1L) } returns task
+        every { taskRepository.findAccessibleById(100L, 1L) } returns task
         every { taskRepository.delete(task) } just runs
 
         service.deleteTask(1L, 100L)

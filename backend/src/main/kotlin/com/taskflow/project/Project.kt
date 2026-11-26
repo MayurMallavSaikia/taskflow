@@ -8,6 +8,8 @@ import jakarta.persistence.GeneratedValue
 import jakarta.persistence.GenerationType
 import jakarta.persistence.Id
 import jakarta.persistence.JoinColumn
+import jakarta.persistence.JoinTable
+import jakarta.persistence.ManyToMany
 import jakarta.persistence.ManyToOne
 import jakarta.persistence.Table
 import java.time.Instant
@@ -31,4 +33,15 @@ class Project(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     val id: Long? = null,
-)
+) {
+    /** Users who can be assigned this project's tasks. The owner is always one of them. */
+    @ManyToMany(fetch = FetchType.LAZY)
+    @JoinTable(
+        name = "project_members",
+        joinColumns = [JoinColumn(name = "project_id")],
+        inverseJoinColumns = [JoinColumn(name = "user_id")],
+    )
+    val members: MutableSet<User> = mutableSetOf(owner)
+
+    fun isMember(userId: Long): Boolean = members.any { it.id == userId }
+}

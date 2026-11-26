@@ -43,10 +43,15 @@ class DemoDataSeeder(
             User("Alex Teammate", "alex@taskflow.dev", passwordEncoder.encode(DEMO_PASSWORD), clock.instant()),
         )
 
+        // Alex is a member of both projects so demo tasks can be assigned to him.
         val project = projectRepository.save(
-            Project("Website Relaunch", "Redesign and relaunch the marketing website", demo, clock.instant()),
+            Project("Website Relaunch", "Redesign and relaunch the marketing website", demo, clock.instant())
+                .apply { members.add(teammate) },
         )
-        projectRepository.save(Project("Mobile App MVP", "First version of the companion app", demo, clock.instant()))
+        projectRepository.save(
+            Project("Mobile App MVP", "First version of the companion app", demo, clock.instant())
+                .apply { members.add(teammate) },
+        )
 
         val today = LocalDate.now(clock)
         listOf(

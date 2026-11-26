@@ -12,6 +12,9 @@ class BadRequestException(message: String) : ApiException(HttpStatus.BAD_REQUEST
 
 class UnauthorizedException(message: String) : ApiException(HttpStatus.UNAUTHORIZED, message)
 
+/** The user can see the resource but isn't allowed to do this to it (e.g. a member managing members). */
+class ForbiddenException(message: String) : ApiException(HttpStatus.FORBIDDEN, message)
+
 /**
  * Used for validation rules that can't be expressed with bean validation annotations
  * (e.g. rules that depend on the current state of the entity).

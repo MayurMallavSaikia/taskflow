@@ -3,15 +3,14 @@ package com.taskflow.task
 import com.taskflow.common.FieldValidationException
 import com.taskflow.common.NotFoundException
 import com.taskflow.common.PageResponse
+import com.taskflow.project.Project
 import com.taskflow.project.ProjectService
 import com.taskflow.task.activity.TaskActivityResponse
 import com.taskflow.task.activity.TaskActivityService
 import com.taskflow.task.sort.TaskSortStrategyResolver
 import com.taskflow.user.User
-import com.taskflow.user.UserRepository
 import org.springframework.data.domain.PageRequest
 import org.springframework.data.domain.Sort
-import org.springframework.data.repository.findByIdOrNull
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import java.time.Clock
@@ -21,7 +20,6 @@ import java.time.LocalDate
 @Transactional(readOnly = true)
 class TaskService(
     private val taskRepository: TaskRepository,
-    private val userRepository: UserRepository,
     private val projectService: ProjectService,
     private val sortStrategyResolver: TaskSortStrategyResolver,
     private val activityService: TaskActivityService,
@@ -29,7 +27,7 @@ class TaskService(
 ) {
 
     fun listTasks(userId: Long, projectId: Long, query: TaskListQuery): PageResponse<TaskResponse> {
-        projectService.getOwnedProject(userId, projectId)
+        projectService.getAccessibleProject(userId, projectId)
         val strategy = sortStrategyResolver.resolve(query.sort)
         val spec = TaskSpecifications.forProject(projectId, query.filter)
             .and(TaskSpecifications.orderedBy(strategy, query.direction))
@@ -42,8 +40,8 @@ class TaskService(
 
     @Transactional
     fun createTask(userId: Long, projectId: Long, request: CreateTaskRequest): TaskResponse {
-        val project = projectService.getOwnedProject(userId, projectId)
-        val assignee = request.assigneeId?.let(::findAssignee)
+        val project = projectService.getAccessibleProject(userId, projectId)
+        val assignee = request.assigneeId?.let { findAssignee(project, it) }
         val task = taskRepository.save(TaskMapper.newTask(request, project, assignee, clock.instant()))
         activityService.recordCreated(task, userId)
         return TaskMapper.toResponse(task, today())
@@ -51,7 +49,7 @@ class TaskService(
 
     @Transactional
     fun updateTask(userId: Long, taskId: Long, request: UpdateTaskRequest): TaskResponse {
-        val task = getOwnedTask(userId, taskId)
+        val task = getAccessibleTask(userId, taskId)
         val today = today()
         if (request.dueDate != task.dueDate && request.dueDate?.isBefore(today) == true) {
             throw FieldValidationException("dueDate", "Due date cannot be in the past")
@@ -63,7 +61,7 @@ class TaskService(
         task.status = requireNotNull(request.status)
         task.priority = requireNotNull(request.priority)
         task.dueDate = request.dueDate
-        task.assignee = request.assigneeId?.let(::findAssignee)
+        task.assignee = request.assigneeId?.let { findAssignee(task.project, it) }
 
         activityService.recordUpdated(task, userId)
         activityService.recordStatusChange(task, userId, previousStatus, task.status)
@@ -72,7 +70,7 @@ class TaskService(
 
     @Transactional
     fun updateStatus(userId: Long, taskId: Long, request: UpdateTaskStatusRequest): TaskResponse {
-        val task = getOwnedTask(userId, taskId)
+        val task = getAccessibleTask(userId, taskId)
         val previousStatus = task.status
         task.status = requireNotNull(request.status)
         activityService.recordStatusChange(task, userId, previousStatus, task.status)
@@ -81,11 +79,11 @@ class TaskService(
 
     @Transactional
     fun deleteTask(userId: Long, taskId: Long) {
-        taskRepository.delete(getOwnedTask(userId, taskId))
+        taskRepository.delete(getAccessibleTask(userId, taskId))
     }
 
     fun getSummary(userId: Long, projectId: Long): ProjectSummaryResponse {
-        projectService.getOwnedProject(userId, projectId)
+        projectService.getAccessibleProject(userId, projectId)
         val counts = taskRepository.countByStatus(projectId).associate { it.status to it.count }
         // Always return every status so the client doesn't have to handle missing keys.
         val countsByStatus = TaskStatus.entries.associateWith { counts[it] ?: 0L }
@@ -99,17 +97,18 @@ class TaskService(
     }
 
     fun getActivity(userId: Long, taskId: Long): List<TaskActivityResponse> {
-        getOwnedTask(userId, taskId)
+        getAccessibleTask(userId, taskId)
         return activityService.listForTask(taskId)
     }
 
-    private fun getOwnedTask(userId: Long, taskId: Long): Task =
-        taskRepository.findByIdAndProjectOwnerId(taskId, userId)
+    private fun getAccessibleTask(userId: Long, taskId: Long): Task =
+        taskRepository.findAccessibleById(taskId, userId)
             ?: throw NotFoundException("Task $taskId not found")
 
-    private fun findAssignee(assigneeId: Long): User =
-        userRepository.findByIdOrNull(assigneeId)
-            ?: throw FieldValidationException("assigneeId", "Assignee $assigneeId does not exist")
+    /** Only members of the project can be assigned its tasks. */
+    private fun findAssignee(project: Project, assigneeId: Long): User =
+        project.members.firstOrNull { it.id == assigneeId }
+            ?: throw FieldValidationException("assigneeId", "Assignee must be a member of this project")
 
     private fun today(): LocalDate = LocalDate.now(clock)
 
